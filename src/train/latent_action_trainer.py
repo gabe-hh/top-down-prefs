@@ -57,8 +57,8 @@ class LatentActionTrainer():
         kl_loss = model.latent_handler.kl_div_fixed_prior(dist)
         if model.state_type == 'continuous':
             recon_loss = F.mse_loss(x_hat, x, reduction='sum')
-        else:
-            recon_loss = F.cross_entropy(x_hat, x, reduction='sum')
+        else: # We have to turn the target onehot to indices, and permute the output to fit PyTorch's cross_entropy definition
+            recon_loss = F.cross_entropy(x_hat.permute(0,2,1), torch.argmax(x,dim=2), reduction='sum')
         
         if d_hat is not None:
             d_recon_loss = F.mse_loss(d_hat, d, reduction='sum')
@@ -165,7 +165,7 @@ class LatentActionTrainer():
                     with torch.no_grad():
                         for i, data in enumerate(example_loader):
                             loss, recon_loss, kl_loss, d_recon_loss, z_hat, d_hat, a, dist, final_z, final_dist, final_h = self.process_batch(model, data, example=True)
-                            self.decode_states(low_model, z_hat, final_z, final_h, d_hat, name='state_reconstructions')
+                            self.decode_states(low_model, model.get_reconstructed_state(z_hat), final_z, final_h, d_hat, name='state_reconstructions')
 
                 if self.early_stopper is not None:
                     if self.early_stopper.step(loss.item()):

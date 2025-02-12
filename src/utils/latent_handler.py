@@ -107,7 +107,8 @@ class CategoricalLatentHandler(BaseLatentHandler):
         return kld_categorical(x_hat, x)
     
     def sample_reconstruction_loss(self, x, x_hat):
-        return F.binary_cross_entropy(x_hat.permute(0,2,1), torch.argmax(x, dim=2), reduction='sum')
+        return kld_categorical(x_hat, x)
+        #return F.binary_cross_entropy(x_hat.permute(0,2,1), torch.argmax(x, dim=2), reduction='sum')
 
     def zero_latent(self, batch_size, latent_size, device='cpu'):
         if not isinstance(latent_size, tuple) or len(latent_size) != 2:

@@ -80,3 +80,15 @@ class LatentActionModel(nn.Module):
         path = os.path.join(root, name)
         os.makedirs(root, exist_ok=True)
         torch.save(self.state_dict(), path)
+
+    def get_reconstructed_state(self, s_hat, sample=True):
+        if self.state_type == 'categorical':
+            if sample:
+                # Sample from the distribution defined by the logits
+                dist = torch.distributions.OneHotCategorical(logits=s_hat)
+                return dist.sample()
+            else:
+                # Use the argmax to get a deterministic output
+                return torch.argmax(s_hat, dim=-1)
+        else:
+            return s_hat
