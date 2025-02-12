@@ -1,0 +1,21 @@
+training:
+  model_name: "latent-action-2-8"
+  dataset_name: "minigrid-5-2000.pt"
+  num_epochs: 300
+  batch_size: 64
+  train_ratio: 0.8
+  lr: 0.0001
+  beta: 0.1
+model:
+  type: "LatentAction"
+  state_dim: 16
+  num_classes: 16
+  action_dim: 2
+  action_classes: 8
+  encoder_layers: [512, 256]
+  decoder_layers: [256, 256]
+  deterministic_dim: 128
+  latent_handler:
+    type: "CategoricalLatentHandler"
+    straight_through: true
+    temperature: 1.0

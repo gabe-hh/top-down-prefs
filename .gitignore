@@ -1,0 +1,15 @@
+# Weights & Biases
+wandb/
+*.wandb
+
+# Virtual Environment
+venv/
+.venv/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Action prefs directory
+/action-prefs/
