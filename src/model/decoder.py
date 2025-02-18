@@ -60,6 +60,7 @@ class DenseDecoder(nn.Module):
         self.output_size = output_size
         
     def forward(self, x, aux=None):
+        x = x.view(x.size(0), -1)
         if self.aux_size == 0:
             aux = None
         if aux is not None:

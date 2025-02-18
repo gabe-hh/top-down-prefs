@@ -95,6 +95,7 @@ class DenseEncoder(nn.Module):
         self.output_size = latent_dim
         
     def forward(self, x, aux=None):
+        x = x.view(x.size(0), -1)
         if aux is not None:
             x = torch.cat([x, aux], dim=-1)
         x = self.dense(x)
@@ -126,6 +127,7 @@ class DenseEncoderCategorical(nn.Module):
         self.output_size = latent_dim*num_classes
         
     def forward(self, x, aux=None):
+        x = x.view(x.size(0), -1)
         if aux is not None:
             x = torch.cat([x, aux], dim=-1)
         x = self.dense(x)

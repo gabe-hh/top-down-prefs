@@ -13,3 +13,13 @@ __pycache__/
 
 # Action prefs directory
 /action-prefs/
+
+# Image files
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+*.ico
+*.svg

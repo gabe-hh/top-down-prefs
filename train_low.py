@@ -15,7 +15,7 @@ import src.model.decoder as decoder
 import src.model.transition as transition
 from src.utils.latent_handler import GaussianLatentHandler, CategoricalLatentHandler
 
-from src.model.model_low import ModelLow
+from src.model.world_model import WorldModel
 from src.train.low_trainer import LowTrainerOnline
 from src.train.utils import load_config, load_training_params
 from src.model.factory import build_model_from_loaded_config, load_config
@@ -46,6 +46,7 @@ if __name__ == '__main__':
     trajectory_length = training_params.get('trajectory_length', 5)
     num_epochs = training_params.get('num_epochs', 1000)
     beta = training_params.get('beta', 1.0)
+    bptt_truncate = training_params.get('bptt_truncate', None)
 
     wandb.init(project='top-down-preferences', config=config)
     if model_name is not None:
@@ -62,7 +63,7 @@ if __name__ == '__main__':
     shutil.copy2(config_path, config_save_path)
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
-    trainer = LowTrainerOnline(optimizer, batch_size, trajectory_length, beta=beta, device=device, eval_img_root=eval_dir, eval_every_n_epochs=500)
+    trainer = LowTrainerOnline(optimizer, batch_size, trajectory_length, beta=beta, device=device, eval_img_root=eval_dir, eval_every_n_epochs=10, bptt_truncate=bptt_truncate)
     env = gym.make_vec("MiniGrid-FourRooms-v0", num_envs=batch_size, vectorization_mode="sync", wrappers=[RGBImgPartialObsWrapper])
     trainer.train(model, env, num_epochs, models_dir)
 

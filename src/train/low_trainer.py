@@ -7,7 +7,7 @@ import os
 import src.model.encoder as encoder
 import src.model.decoder as decoder
 import src.model.transition as transition
-from src.model.model_low import ModelLow
+from src.model.world_model import WorldModel
 import src.utils.latent_handler as latent_handler
 from src.utils.loss import mse_loss
 #import src.train.utils as train_utils
@@ -24,7 +24,8 @@ class LowTrainerOnline():
                  device='cuda',
                  kl_alpha=0.8,
                  eval_img_root='.',
-                 eval_every_n_epochs=20):
+                 eval_every_n_epochs=20,
+                 bptt_truncate=None):
         
         self.optimizer = optimizer
         self.batch_size = batch_size
@@ -40,6 +41,7 @@ class LowTrainerOnline():
 
         self.img_root = eval_img_root
         self.eval_every_n_epochs = eval_every_n_epochs
+        self.bptt_truncate = bptt_truncate
         
         self.wandb_enabled = wandb.run is not None
         if not self.wandb_enabled:
@@ -58,9 +60,11 @@ class LowTrainerOnline():
         return loss, recon_loss, kl_loss
 
     def train(self, model, env, num_epochs, model_root):
+        torch.autograd.set_detect_anomaly(True)
         model = model.to(self.device)
         action_dim = model.action_dim
         zero_prior = model.zero_prior(self.batch_size, device=self.device)
+        zero_prior = tuple(d.detach() for d in zero_prior)
         best_loss = float('inf')
         for epoch in range(num_epochs):
             obs,_ = env.reset()
@@ -69,37 +73,56 @@ class LowTrainerOnline():
             h = model.zero_hidden(self.batch_size).to(self.device)
 
             epoch_loss = 0
-
             recon_loss_total = 0
             kl_loss_total = 0
             loss_denom = 0
 
+            # Track accumulated loss for truncated BPTT
+            accumulated_loss = torch.tensor(0.0, device=self.device)
+
             for t in range(self.trajectory_length):
                 o_tensor = utils.obs2tensor(obs['image']).to(self.device)
-                action, a_tensor = utils.get_random_action(action_dim, self.batch_size)
-                a_tensor = a_tensor.to(self.device)
+                terminal = model.is_terminal(t)
+                if not terminal:
+                    action, a_tensor = utils.get_random_action(action_dim, self.batch_size)
+                    a_tensor = a_tensor.to(self.device)
 
                 x_hat, z, dist = model(o_tensor, h)
-                z_next, dist_next, h = model.transition(z, a_tensor, h)
 
-                # Compute loss
+                if not terminal:
+                    z_next, dist_next, h = model.transition(z, a_tensor, h)
+
                 loss, recon_loss, kl_loss = self.compute_loss(model, o_tensor, x_hat, dist, dist_prior)
 
-                epoch_loss += loss
-
+                accumulated_loss = accumulated_loss + loss
+                epoch_loss += loss.item()
                 recon_loss_total += recon_loss.item()
                 kl_loss_total += kl_loss.item()
                 loss_denom += 1
 
+                # Perform truncated BPTT if conditions are met
+                if self.bptt_truncate and self.bptt_truncate > 0 and (t + 1) % self.bptt_truncate == 0:
+                    self.optimizer.zero_grad()
+                    accumulated_loss.backward()
+                    self.optimizer.step()
+                    accumulated_loss = torch.tensor(0.0, device=self.device)
+                    h = h.detach()  # Detach hidden state
+
                 # Update prior
-                dist_prior = dist_next
-                obs,_,_,_,_ = env.step(action)
+                if not terminal:
+                    dist_prior = dist_next
+                    obs,_,_,_,_ = env.step(action)
+                else: #TODO: We might want to keep the prior, or set it to the current distribution
+                    h = model.process_hidden_state(t, h, self.batch_size)
+                    dist_prior = model.zero_prior(self.batch_size, device=self.device)
 
-            self.optimizer.zero_grad()
-            epoch_loss.backward()
-            self.optimizer.step()
+            # Handle remaining steps if any
+            if accumulated_loss > 0:
+                self.optimizer.zero_grad()
+                accumulated_loss.backward()
+                self.optimizer.step()
 
-            avg_loss = (recon_loss_total + kl_loss_total) / loss_denom
+            avg_loss = epoch_loss / loss_denom
             if self.wandb_enabled:
                 wandb.log({'epoch': epoch+1, 'loss': avg_loss, 
                        'recon_loss': recon_loss_total / loss_denom, 
@@ -126,6 +149,6 @@ class LowTrainerOnline():
         #self.eval_transitions(model, env, 8, wandb_log=self.wandb_enabled)
 
     def eval_transitions(self, model, env, num_transitions, path, wandb_log=True):
-        a_indices, a_onehot, = utils.get_random_action_sequence(self.trajectory_length-1, model.action_dim, self.batch_size, device=self.device)
+        a_indices, a_onehot, = utils.get_random_action_sequence(model.steps-1, model.action_dim, self.batch_size, device=self.device)
         a_onehot = a_onehot.to(self.device)
         generate_low_transition_predictions(model, env, a_indices, a_onehot, device=self.device, wandb_log=wandb_log, qty=num_transitions, name=f'eval_lo_transitions', root=path)

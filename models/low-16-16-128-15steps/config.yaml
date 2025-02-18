@@ -1,0 +1,54 @@
+training:
+  model_name: "low-16-16-128-15steps"
+  trajectory_length: 15
+  batch_size: 64
+  num_epochs: 8000
+  lr: 0.0001
+  beta: 1.0
+model:
+  type: "ModelLow"
+  steps: 15
+  encoder:
+    type: "ConvEncoderCategorical"
+    in_channels: 3
+    img_size: 56
+    conv_layers:
+      - [32, 3, 2, 1]
+      - [64, 3, 2, 1]
+      - [128, 3, 2, 1]
+    fc_layers: [256, 256]
+    latent_dim: 16
+    num_classes: 16
+    conv_act: "elu"
+    fc_act: "elu"
+    aux_size: 128
+    straight_through: true
+  decoder:
+    type: "ConvDecoder"
+    input_dim: 256   # latent_dim*num_classes = 16*16
+    in_shape: [128, 7, 7]
+    deconv_layers:
+      - [128, 3, 2, 1, 1]
+      - [64, 3, 1, 1, 0]
+      - [64, 3, 2, 1, 1]
+      - [32, 3, 1, 1, 0]
+      - [32, 3, 2, 1, 1]
+      - [3, 3, 1, 1, 0]
+    fc_layers: [256, 256]
+    conv_act: "elu"
+    fc_act: "elu"
+    final_act: "sigmoid"
+    last_layer_conv: false
+    aux_size: 128
+  transition:
+    type: "RSSMTransitionCategorical"
+    latent_dim: 16
+    num_classes: 16
+    action_dim: 4
+    hidden_dim: 128
+    layers: [1024, 1024]
+    activation: "elu"
+  latent_handler:
+    type: "CategoricalLatentHandler"
+    straight_through: true
+    temperature: 1.0

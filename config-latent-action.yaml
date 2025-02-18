@@ -1,16 +1,16 @@
 training:
-  model_name: "latent-action-5-4"
-  dataset_name: "minigrid-5-2000.pt"
-  num_epochs: 300
+  model_name: "latent-action-15-4"
+  dataset_name: "minigrid-15-2000.pt"
+  num_epochs: 150
   batch_size: 64
   train_ratio: 0.8
   lr: 0.0001
-  beta: 0.01
+  beta: 0.1
 model:
   type: "LatentAction"
   state_dim: 16
   num_classes: 16
-  action_dim: 5
+  action_dim: 15
   action_classes: 4
   encoder_layers: [512, 256]
   decoder_layers: [512, 512]

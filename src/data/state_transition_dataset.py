@@ -1,6 +1,6 @@
 from torch.utils.data import Dataset
 import torch
-from src.model.model_low import ModelLow
+from src.model.world_model import WorldModel
 from src.utils.utils import obs2tensor, get_random_action
 from src.utils.eval import plot_img_comparison_batch
 import os
@@ -22,16 +22,19 @@ class StateTransitionDataset(Dataset):
             'final_h': item['final_h']
         }
 
-def collect_states(model:ModelLow, env, action_dim, trajectory_length, batch_size, num_trajectories, device='cuda'):
+def collect_states(model:WorldModel, env, action_dim, trajectory_length, batch_size, num_trajectories, device='cuda', reset_low=True):
     obs, _ = env.reset()
     collected_data = []
     hi_timestep = model.steps
     for _ in range(num_trajectories):
+        h = model.zero_hidden(batch_size).to(device)
         for t in range(trajectory_length):
             with torch.no_grad():
-                h = model.zero_hidden(batch_size).to(device)
                 obstensor = obs2tensor(obs['image'], device=device)
                 action, action_tensor = get_random_action(action_dim, batch_size, device=device)
+
+                if t % hi_timestep == 0 and reset_low:
+                    h = model.zero_hidden(batch_size).to(device)
 
                 x_hat, z, dist = model(obstensor, h)
 

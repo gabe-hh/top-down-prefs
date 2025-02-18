@@ -6,7 +6,7 @@ import os
 from src.model.encoder import ConvEncoder, ConvEncoderCategorical, DenseEncoder, DenseEncoderCategorical
 from src.model.decoder import ConvDecoder, DenseDecoder
 from src.model.transition import RSSMTransitionCategorical, RNNTransitionCategorical, TransitionNormal, TransitionCategorical
-from src.model.model_low import ModelLow
+from src.model.world_model import WorldModel
 from src.model.latent_action import LatentActionModel
 from src.utils.latent_handler import GaussianLatentHandler, CategoricalLatentHandler
 
@@ -94,7 +94,8 @@ def build_low_model_from_config(config):
 
     # Build the overall model
     steps = model_config.get("steps", 5)
-    model = ModelLow(encoder, decoder, transition, latent_handler, (encoder_params["latent_dim"], encoder_params["num_classes"]), steps=steps)
+    reset_hidden = model_config.get("reset_hidden", True)
+    model = WorldModel(encoder, decoder, transition, latent_handler, (encoder_params["latent_dim"], encoder_params["num_classes"]), steps=steps, reset_hidden=reset_hidden)
     return model
 
 def build_model_from_config(config_path, device="cuda"):

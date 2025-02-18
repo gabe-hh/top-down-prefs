@@ -1,13 +1,15 @@
 training:
-  model_name: "low-16-16-128"
-  trajectory_length: 5
+  model_name: "low-16-16-128-10steps-t1000"
+  trajectory_length: 1000
   batch_size: 64
-  num_epochs: 5000
+  num_epochs: 50
   lr: 0.0001
   beta: 1.0
+  bptt_truncate: 10
 model:
   type: "ModelLow"
-  steps: 5
+  steps: 10
+  reset_hidden: false
   encoder:
     type: "ConvEncoderCategorical"
     in_channels: 3
