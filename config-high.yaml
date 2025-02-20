@@ -1,0 +1,41 @@
+training:
+  model_name: "high-8-8-128-t1000"
+  model_low: "low-16-16-128-10steps-t1000"
+  model_action: "latent-action-15-4"
+  trajectory_length: 200
+  batch_size: 64
+  num_epochs: 1000
+  lr: 0.0001
+  beta: 1.0
+  bptt_truncate: 200
+model:
+  type: "ModelHigh"
+  steps: -1
+  encoder:
+    type: "DenseEncoderCategorical"
+    input_size: 384 # 16*16 + 128 
+    latent_dim: 8
+    num_classes: 8
+    layers: [256, 128]
+    activation: "elu"
+    aux_size: 128 # 128
+    straight_through: true
+  decoder:
+    type: "DenseDecoder"
+    input_dim: 64   # latent_dim*num_classes = 16*16
+    fc_layers: [128, 256]
+    fc_act: "elu"
+    output_size: 256
+    aux_size: 128
+  transition:
+    type: "RSSMTransitionCategorical"
+    latent_dim: 8
+    num_classes: 8
+    action_dim: 16
+    hidden_dim: 128
+    layers: [256, 256]
+    activation: "elu"
+  latent_handler:
+    type: "CategoricalLatentHandler"
+    straight_through: true
+    temperature: 1.0

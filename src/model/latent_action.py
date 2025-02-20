@@ -13,23 +13,33 @@ class LatentActionModel(nn.Module):
                  decoder_layers,
                  latent_handler,
                  deterministic_dim=0,
+                 include_initial_deterministic=False,
                  predict_deterministic=False,
                  action_classes=None,
                  num_classes=None):
         super(LatentActionModel, self).__init__()
 
         self.predict_deterministic = predict_deterministic
+        self.include_initial_deterministic = include_initial_deterministic
         self.state_dim = state_dim
         self.latent_handler = latent_handler
+
+        if include_initial_deterministic:
+            initial_deterministic_size = deterministic_dim
+            deterministic_input_size = deterministic_dim * 2
+        else:
+            initial_deterministic_size = 0
+            deterministic_input_size = deterministic_dim
+
         if num_classes is None:
             self.state_type = 'continuous'
-            self.input_size = state_dim * 2 + deterministic_dim
+            self.input_size = state_dim * 2 + deterministic_input_size
             state_size = state_dim
             self.output_size = state_dim
         else:
             self.state_type = 'categorical'
             self.num_classes = num_classes
-            self.input_size = state_dim * num_classes * 2 + deterministic_dim
+            self.input_size = state_dim * num_classes * 2 + deterministic_input_size
             state_size = state_dim * num_classes
             self.output_size = state_dim * num_classes
 
@@ -43,24 +53,26 @@ class LatentActionModel(nn.Module):
         else:
             self.encoder = DenseEncoder(self.input_size, encoder_layers, action_dim)
             self.type = 'normal'
-            self.decoder = DenseDecoder(action_dim + state_size, decoder_layers, self.output_size)
+            self.decoder = DenseDecoder(action_dim + state_size + initial_deterministic_size, decoder_layers, self.output_size)
 
         print(f"Encoder input size: {self.input_size}, output size: {self.encoder.output_size}")
         print(f"Decoder input size: {self.decoder.input_dim}, output size: {self.decoder.output_size}")
 
-    def encode_action(self, s_initial, s_final, d=None):
+    def encode_action(self, s_initial, s_final, d_initial=None, d_final=None):
         s_initial = s_initial.view(s_initial.size(0), -1)
         s_final = s_final.view(s_final.size(0), -1)
         x = torch.cat([s_initial, s_final], dim=-1)
+        if self.include_initial_deterministic:
+            d = torch.cat([d_initial, d_final], dim=-1)
         dist = self.encoder(x, d)
         a = self.latent_handler.reparameterize(dist)
         return a, dist
     
-    def decode(self, a, s_initial):
+    def decode(self, a, s_initial, d_initial=None):
         s_initial = s_initial.view(s_initial.size(0), -1)
         a = a.view(a.size(0), -1)
         x = torch.cat([a, s_initial], dim=-1)
-        out = self.decoder(x)
+        out = self.decoder(x, d_initial)
         if self.predict_deterministic:
             s_hat, d_hat = torch.split(out, [self.output_size - s_initial.size(1), s_initial.size(1)], dim=-1)
         else:
@@ -71,9 +83,9 @@ class LatentActionModel(nn.Module):
             s_hat = s_hat.view(-1, self.state_dim, self.num_classes)
         return s_hat, d_hat
         
-    def forward(self, s_initial, s_final, d=None):
-        a, dist = self.encode_action(s_initial, s_final, d)
-        s_hat, d_hat = self.decode(a, s_initial)
+    def forward(self, s_initial, s_final, d_initial=None, d_final=None):
+        a, dist = self.encode_action(s_initial, s_final, d_initial, d_final)
+        s_hat, d_hat = self.decode(a, s_initial, d_initial)
         return s_hat, d_hat, a, dist
     
     def save_model(self, root, name):

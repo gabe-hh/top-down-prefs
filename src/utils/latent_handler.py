@@ -5,9 +5,15 @@ import torch.distributions as D
 from src.utils.loss import kld_gaussian, kld_categorical
 
 class BaseLatentHandler:
+    def reshape_latent(self, latent, dist_params):
+        raise NotImplementedError()
+
     def reparameterize(self, params):
         raise NotImplementedError()
     
+    def sample_if_logits(self, input):
+        raise NotImplementedError()
+
     def kl_divergence(self, posterior, prior):
         raise NotImplementedError()
     
@@ -31,6 +37,12 @@ class GaussianLatentHandler(BaseLatentHandler):
     def __init__(self, latent_dim):
         super().__init__()
         self.latent_dim = latent_dim
+
+    def sample_if_logits(self, input):
+        return input
+
+    def reshape_latent(self, latent, dist_params):
+        return latent
 
     def reparameterize(self, params):
         mu, logvar = params
@@ -77,6 +89,13 @@ class CategoricalLatentHandler(BaseLatentHandler):
         self.temperature = temperature
         self.straight_through = straight_through
         
+    def reshape_latent(self, latent, dist_params):
+        latent_dim, num_classes = dist_params
+        return latent.view(latent.size(0), latent_dim, num_classes)
+    
+    def sample_if_logits(self, input):
+        return self.reparameterize((input, None))
+
     def reparameterize(self, params):
         logits,_ = params
         if self.straight_through:
@@ -107,8 +126,7 @@ class CategoricalLatentHandler(BaseLatentHandler):
         return kld_categorical(x_hat, x)
     
     def sample_reconstruction_loss(self, x, x_hat):
-        return kld_categorical(x_hat, x)
-        #return F.binary_cross_entropy(x_hat.permute(0,2,1), torch.argmax(x, dim=2), reduction='sum')
+        return F.cross_entropy(x_hat.permute(0,2,1), torch.argmax(x,dim=2), reduction='sum')
 
     def zero_latent(self, batch_size, latent_size, device='cpu'):
         if not isinstance(latent_size, tuple) or len(latent_size) != 2:

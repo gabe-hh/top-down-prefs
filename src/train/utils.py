@@ -18,3 +18,6 @@ def load_config(config_path):
 def load_training_params(config):
     training_params = config["training"]
     return training_params
+
+def scale_onehot(onehot):
+    return 2*onehot - 1

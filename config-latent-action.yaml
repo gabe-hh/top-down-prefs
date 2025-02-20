@@ -1,7 +1,7 @@
 training:
   model_name: "latent-action-15-4"
-  dataset_name: "minigrid-15-2000.pt"
-  num_epochs: 150
+  dataset_name: "minigrid-1000-20.pt"
+  num_epochs: 200
   batch_size: 64
   train_ratio: 0.8
   lr: 0.0001
@@ -10,11 +10,12 @@ model:
   type: "LatentAction"
   state_dim: 16
   num_classes: 16
-  action_dim: 15
+  action_dim: 4
   action_classes: 4
   encoder_layers: [512, 256]
   decoder_layers: [512, 512]
   deterministic_dim: 128
+  include_initial_deterministic: true
   latent_handler:
     type: "CategoricalLatentHandler"
     straight_through: true

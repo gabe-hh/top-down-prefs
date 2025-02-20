@@ -3,6 +3,7 @@ from torch import nn, optim, Tensor
 import torch.nn.functional as F
 import wandb
 import os
+import tqdm
 
 import src.model.encoder as encoder
 import src.model.decoder as decoder
@@ -13,6 +14,7 @@ from src.utils.loss import mse_loss
 #import src.train.utils as train_utils
 import src.utils.utils as utils
 from src.utils.eval import plot_img_comparison_batch, generate_low_transition_predictions
+
 
 class LowTrainerOnline():
     def __init__(self,
@@ -60,13 +62,12 @@ class LowTrainerOnline():
         return loss, recon_loss, kl_loss
 
     def train(self, model, env, num_epochs, model_root):
-        torch.autograd.set_detect_anomaly(True)
         model = model.to(self.device)
         action_dim = model.action_dim
         zero_prior = model.zero_prior(self.batch_size, device=self.device)
         zero_prior = tuple(d.detach() for d in zero_prior)
         best_loss = float('inf')
-        for epoch in range(num_epochs):
+        for epoch in tqdm.trange(num_epochs, desc="Training"):
             obs,_ = env.reset()
 
             dist_prior = zero_prior
@@ -140,7 +141,8 @@ class LowTrainerOnline():
                     wandb.run.summary['best_loss'] = best_loss
 
             if (epoch + 1) % self.eval_every_n_epochs == 0:
-                print(f'Plotting evaluation images at epoch {epoch+1}')
+                if not self.wandb_enabled:
+                    print(f'Plotting evaluation images at epoch {epoch+1}')
                 plot_img_comparison_batch(o_tensor, x_hat, 'Observation', 'Reconstruction', name='eval_lo_recon', root=self.img_root, wandb_log=self.wandb_enabled, limit=8)
                 self.eval_transitions(model, env, 8, self.img_root, wandb_log=self.wandb_enabled)
                 model.save_model(model_root, 'latest.pt')

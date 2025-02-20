@@ -3,6 +3,7 @@ from torch import nn, optim, Tensor
 import torch.nn.functional as F
 import wandb
 import os
+import tqdm
 from torch.utils.data import DataLoader, Subset, random_split
 from src.model.latent_action import LatentActionModel
 from src.utils.eval import plot_img_comparison_batch
@@ -71,12 +72,13 @@ class LatentActionTrainer():
         initial_z = data['initial_z'].to(self.device)
         initial_dist = data['initial_dist']
         initial_dist = tuple(d.to(self.device) for d in initial_dist)
+        initial_h = data['initial_h'].to(self.device)
         final_z = data['final_z'].to(self.device)
         final_dist = data['final_dist']
         final_dist = tuple(d.to(self.device) for d in final_dist)
         final_h = data['final_h'].to(self.device)
         
-        z_hat, d_hat, a, dist = model(initial_z, final_z, final_h)
+        z_hat, d_hat, a, dist = model(initial_z, final_z, initial_h, final_h)
         
         loss, recon_loss, kl_loss, d_recon_loss = self.compute_loss(model, final_z, z_hat, dist, final_h, d_hat)
         
@@ -95,7 +97,7 @@ class LatentActionTrainer():
         
         min_val_loss = float('inf')
 
-        for epoch in range(num_epochs):
+        for epoch in tqdm.trange(num_epochs, desc="Training"):
             model.train()
 
             epoch_loss = 0

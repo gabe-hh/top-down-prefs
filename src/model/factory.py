@@ -54,13 +54,19 @@ def build_latent_action_model_from_config(config):
     latent_handler = LatentHandlerClass(**latent_handler_params)
     deterministic_dim = model_config.get("deterministic_dim", 0)
     predict_deterministic = model_config.get("predict_deterministic", False)
+    include_initial_deterministic = model_config.get("include_initial_deterministic", False)
     action_classes = model_config.get("action_classes", None)
     num_classes = model_config.get("num_classes", None)
 
-    model = LatentActionModel(state_dim, action_dim, encoder_layers, decoder_layers, latent_handler, deterministic_dim=deterministic_dim, predict_deterministic=predict_deterministic, action_classes=action_classes, num_classes=num_classes)
+    model = LatentActionModel(state_dim, action_dim, encoder_layers, decoder_layers, latent_handler, 
+                              deterministic_dim=deterministic_dim, 
+                              predict_deterministic=predict_deterministic, 
+                              include_initial_deterministic=include_initial_deterministic, 
+                              action_classes=action_classes, 
+                              num_classes=num_classes)
     return model
 
-def build_low_model_from_config(config):
+def build_world_model_from_config(config):
     model_config = config["model"]
 
     # Build the encoder
@@ -100,12 +106,12 @@ def build_low_model_from_config(config):
 
 def build_model_from_config(config_path, device="cuda"):
     config = load_config(config_path)
-    return build_low_model_from_config(config).to(device)
+    return build_model_from_loaded_config(config, device)
 
 def build_model_from_loaded_config(config, device="cuda"):
     model_type = config["model"]["type"]
-    if model_type == "ModelLow":
-        model = build_low_model_from_config(config)
+    if model_type == "ModelLow" or model_type == "ModelHigh":
+        model = build_world_model_from_config(config)
     elif model_type == "LatentAction":
         model = build_latent_action_model_from_config(config)
     else:
@@ -127,5 +133,5 @@ def load_model(model_root, checkpoint="best", device="cuda"):
 # Example usage:
 if __name__ == "__main__":
     config = load_config("model_config.yaml")
-    model = build_low_model_from_config(config)
+    model = build_world_model_from_config(config)
     print(model)
