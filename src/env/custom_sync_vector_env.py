@@ -19,6 +19,7 @@ from gymnasium.vector.utils import (
 from gymnasium.envs.registration import _find_spec
 from gymnasium.vector.vector_env import ArrayType, VectorEnv
 from gymnasium.vector.sync_vector_env import SyncVectorEnv
+import torch
 
 class CustomSyncVectorEnv(SyncVectorEnv):
     def __init__(self, env_fns, copy=True, observation_mode="same", wrappers=None):

@@ -3,8 +3,9 @@ import torch
 import torch.nn.functional as F
 import os
 
+from src.model.base import MLP
 from src.model.encoder import ConvEncoder, ConvEncoderCategorical, DenseEncoder, DenseEncoderCategorical
-from src.model.decoder import ConvDecoder, DenseDecoder
+from src.model.decoder import ConvDecoder, DenseDecoder, MultiHeadDecoder
 from src.model.transition import RSSMTransitionCategorical, RNNTransitionCategorical, TransitionNormal, TransitionCategorical
 from src.model.world_model import WorldModel
 from src.model.latent_action import LatentActionModel
@@ -21,6 +22,7 @@ ENCODER_MAP = {
 DECODER_MAP = {
     "ConvDecoder": ConvDecoder,
     "DenseDecoder": DenseDecoder,
+    "MultiHeadDecoder": MultiHeadDecoder,
 }
 
 TRANSITION_MAP = {
@@ -64,6 +66,15 @@ def build_latent_action_model_from_config(config):
                               include_initial_deterministic=include_initial_deterministic, 
                               action_classes=action_classes, 
                               num_classes=num_classes)
+    return model
+
+def build_mlp_from_config(model_config):
+    input_dim = model_config["input_dim"]
+    output_dim = model_config["output_dim"]
+    hidden_dims = model_config["hidden_dims"]
+    activation = model_config["activation"]
+    output_activation = model_config.get("output_activation", None)
+    model = MLP(input_dim, output_dim, hidden_dims, activation, output_activation)
     return model
 
 def build_world_model_from_config(config):

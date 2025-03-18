@@ -6,7 +6,7 @@ import os
 import tqdm
 from torch.utils.data import DataLoader, Subset, random_split
 from src.model.latent_action import LatentActionModel
-from src.utils.eval import plot_img_comparison_batch
+from src.utils.eval import plot_img_comparison_batch, plot_distribution_comparison
 
 class LatentActionTrainer():
     def __init__(self,
@@ -31,7 +31,7 @@ class LatentActionTrainer():
         if not self.wandb_enabled:
             print("Wandb not enabled, printing training logs to console")
 
-    def split_dataset(self, dataset, train_ratio=0.8, eval_size=0):
+    def split_dataset(self, dataset, train_ratio=0.8, eval_size=0): # TODO: Move to utils
         all_indices = torch.randperm(len(dataset))
         example_indices = all_indices[:eval_size]
         remaining_indices = all_indices[eval_size:]
@@ -46,13 +46,13 @@ class LatentActionTrainer():
         
         return train_dataset, val_dataset, example_dataset
     
-    def decode_states(model, low_model, pred, target, h, h_pred=None, name='state_reconstructions'):
+    def decode_states(self, low_model, pred, target, h, h_pred=None, name='state_reconstructions'):
         if h_pred is None:
             print("Using target hidden state for decoding")
             h_pred = h
         x_hat = low_model.decode(pred, h_pred)
         x = low_model.decode(target, h)
-        plot_img_comparison_batch(x, x_hat, title1='Target', title2='Reconstruction', name=name, root=model.img_root)
+        plot_img_comparison_batch(x, x_hat, title1='Target', title2='Reconstruction', name=name, root=self.img_root)
 
     def compute_loss(self, model, x, x_hat, dist, d=None, d_hat=None):
         kl_loss = model.latent_handler.kl_div_fixed_prior(dist)
@@ -167,6 +167,9 @@ class LatentActionTrainer():
                     with torch.no_grad():
                         for i, data in enumerate(example_loader):
                             loss, recon_loss, kl_loss, d_recon_loss, z_hat, d_hat, a, dist, final_z, final_dist, final_h = self.process_batch(model, data, example=True)
+                            logits = z_hat
+                            tgt_logits,_ = final_dist
+                            plot_distribution_comparison(logits, tgt_logits, title1='Reconstruction', title2='Target', name='action_distributions', root=self.img_root)
                             self.decode_states(low_model, model.get_reconstructed_state(z_hat), final_z, final_h, d_hat, name='state_reconstructions')
 
                 if self.early_stopper is not None:

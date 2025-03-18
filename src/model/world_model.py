@@ -71,8 +71,8 @@ class WorldModel(nn.Module):
         h = torch.cat(h, dim=-1) if h else None
         dist = self.encoder(x, h)
         z = self.latent_handler.reparameterize(dist)
-        x_hat = self.decoder(z, h)
-        return x_hat, z, dist
+        decoded = self.decoder(z, h)
+        return decoded, z, dist
     
     def decode(self, z, *h):
         h = torch.cat(h, dim=-1) if h else None
@@ -133,5 +133,3 @@ class WorldModel(nn.Module):
         if t % self.steps == 0 and self.reset_hidden:
             return self.zero_hidden(batch_size)
         return h
-
-            

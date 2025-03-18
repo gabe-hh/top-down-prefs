@@ -1,12 +1,17 @@
 training:
-  model_name: "high-8-8-128-t1000"
+  model_name: "high-16-16-128-replay"
   model_low: "low-16-16-128-10steps-t1000"
-  model_action: "latent-action-15-4"
+  model_action: "latent-action-4-4"
   trajectory_length: 200
   batch_size: 64
-  num_epochs: 1000
+  num_epochs: 200
   lr: 0.0001
-  beta: 1.0
+  dataset: "minigrid-2000-40-actions.pt"
+  beta: 
+    type: "linear"
+    start: 0.01
+    end: 10.0
+    steps: 200
   bptt_truncate: 200
 model:
   type: "ModelHigh"
@@ -14,27 +19,27 @@ model:
   encoder:
     type: "DenseEncoderCategorical"
     input_size: 384 # 16*16 + 128 
-    latent_dim: 8
-    num_classes: 8
-    layers: [256, 128]
-    activation: "elu"
+    latent_dim: 16
+    num_classes: 16
+    layers: [256, 256, 128, 128]
+    activation: "leaky_relu"
     aux_size: 128 # 128
     straight_through: true
   decoder:
     type: "DenseDecoder"
-    input_dim: 64   # latent_dim*num_classes = 16*16
-    fc_layers: [128, 256]
-    fc_act: "elu"
+    input_dim: 256   # latent_dim*num_classes = 16*16
+    fc_layers: [128, 128, 256, 256, 256]
+    fc_act: "leaky_relu"
     output_size: 256
     aux_size: 128
   transition:
     type: "RSSMTransitionCategorical"
-    latent_dim: 8
-    num_classes: 8
+    latent_dim: 16
+    num_classes: 16
     action_dim: 16
     hidden_dim: 128
-    layers: [256, 256]
-    activation: "elu"
+    layers: [512, 512, 512]
+    activation: "leaky_relu"
   latent_handler:
     type: "CategoricalLatentHandler"
     straight_through: true

@@ -16,6 +16,10 @@ def kld_categorical(logits, prior_logits):
 def mse_loss(tgt, pred):
     return F.mse_loss(pred, tgt, reduction='sum')
 
+def bernoulli_nll(probs, tgt):
+    distn = D.Bernoulli(probs=probs)
+    return -distn.log_prob(tgt).sum()
+
 def ce_loss(logits, tgt_onehot):
     logits = logits.permute(0, 2, 1)
     tgt_indicies = logits2categorical(tgt_onehot)

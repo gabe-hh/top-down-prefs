@@ -3,6 +3,7 @@ from torch import nn, optim, Tensor
 import torch.nn.functional as F
 
 ACTIVATION_FN_MAP = {
+    "none": lambda x: x,
     "elu": F.elu,
     "relu": F.relu,
     "sigmoid": F.sigmoid,
@@ -29,6 +30,34 @@ class Dense(nn.Module):
         for layer in self.layers:
             x = self.activation(layer(x))
 
+        return x
+
+class MLP(nn.Module):
+    def __init__(self, input_size, layers, output_size, activation=F.relu, output_activation=None):
+        super(MLP, self).__init__()
+        self.activation = ACTIVATION_FN_MAP[activation.lower()] if isinstance(activation, str) else activation
+        self.output_activation = ACTIVATION_FN_MAP[output_activation.lower()] if isinstance(output_activation, str) else output_activation
+
+        self.layers = nn.ModuleList()
+        current_size = input_size
+
+        for size in layers:
+            self.layers.append(nn.Linear(current_size, size))
+            current_size = size
+        
+        self.output_layer = nn.Linear(current_size, output_size)
+        self.output_size = output_size
+    
+    def forward(self, x, *aux):
+        if aux:
+            x = torch.cat([x, *aux], dim=1)
+        for layer in self.layers:
+            x = self.activation(layer(x))
+        
+        x = self.output_layer(x)
+        if self.output_activation is not None:
+            x = self.output_activation(x)
+        
         return x
 
 class CNN(nn.Module):

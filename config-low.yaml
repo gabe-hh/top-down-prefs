@@ -1,51 +1,60 @@
 training:
-  model_name: "low-16-16-128-10steps-t1000"
+  model_name: "low-20-20-128-10steps-gm"
   trajectory_length: 1000
   batch_size: 64
-  num_epochs: 50
+  num_epochs: 100
   lr: 0.0001
-  beta: 1.0
+  beta: 1.5
   bptt_truncate: 10
+  goal_mask: true
 model:
   type: "ModelLow"
   steps: 10
   reset_hidden: false
   encoder:
     type: "ConvEncoderCategorical"
-    in_channels: 3
+    in_channels: 4
     img_size: 56
     conv_layers:
       - [32, 3, 2, 1]
       - [64, 3, 2, 1]
       - [128, 3, 2, 1]
     fc_layers: [256, 256]
-    latent_dim: 16
-    num_classes: 16
+    latent_dim: 20
+    num_classes: 20
     conv_act: "elu"
     fc_act: "elu"
     aux_size: 128
     straight_through: true
   decoder:
-    type: "ConvDecoder"
-    input_dim: 256   # latent_dim*num_classes = 16*16
+    type: "MultiHeadDecoder"
+    input_dim: 400   # latent_dim*num_classes = 16*16
     in_shape: [128, 7, 7]
-    deconv_layers:
+    deconv_layers_img:
       - [128, 3, 2, 1, 1]
       - [64, 3, 1, 1, 0]
       - [64, 3, 2, 1, 1]
       - [32, 3, 1, 1, 0]
       - [32, 3, 2, 1, 1]
       - [3, 3, 1, 1, 0]
+    deconv_layers_mask:
+      - [128, 3, 2, 1, 1]
+      - [64, 3, 1, 1, 0]
+      - [64, 3, 2, 1, 1]
+      - [32, 3, 1, 1, 0]
+      - [32, 3, 2, 1, 1]
+      - [1, 3, 1, 1, 0]
     fc_layers: [256, 256]
     conv_act: "elu"
     fc_act: "elu"
-    final_act: "sigmoid"
+    final_act_img: "sigmoid"
+    final_act_mask: "sigmoid"
     last_layer_conv: false
     aux_size: 128
   transition:
     type: "RSSMTransitionCategorical"
-    latent_dim: 16
-    num_classes: 16
+    latent_dim: 20
+    num_classes: 20
     action_dim: 4
     hidden_dim: 128
     layers: [1024, 1024]
