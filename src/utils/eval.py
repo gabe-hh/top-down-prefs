@@ -8,7 +8,7 @@ import math
 import dill
 from src.model.world_model import high_tick
 from src.train.utils import obs2tensor
-from src.utils.utils import add_goal_mask, separate_goal_mask, remove_goal_mask
+from src.utils.utils import add_goal_mask, separate_goal_mask, remove_goal_mask, get_random_action
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 # Plotting functions
@@ -848,13 +848,26 @@ def rollout_high_transition_predictions_replay(model_high, model_low, trajectory
 
 
 # Evaluation functions
-def rollout_low_transition_predictions(model, env, a_indices, a_onehot, goal_mask=False, device='cuda'):
+def rollout_low_transition_predictions(model, env, a_indices, a_onehot, goal_mask=False, device='cuda', context_length=200):
     predictions = []
     obs,_ = env.reset()
     obs = obs['image']
-    true_obs = [obs]
+
     batch_size = obs.shape[0]
     h = model.zero_hidden(batch_size).to(device)
+    action_dim = model.action_dim
+    for i in range(context_length):
+        obs_tensor = obs2tensor(obs).to(device)
+        if goal_mask:
+            obs_tensor = add_goal_mask(obs_tensor)
+        action, action_tensor = get_random_action(action_dim, batch_size, device=device)
+
+        _,z,_ = model(obs_tensor, h)
+        _,_,h = model.transition(z, action_tensor, h)
+        obs, _, _, _, _ = env.step(action)
+        obs = obs['image']
+
+    true_obs = [obs]
     # For each starting point
     for i in range(len(a_onehot)):
         current_obs = true_obs[i]
@@ -909,7 +922,7 @@ def generate_high_transition_predictions_replay(model_high, model_low, trajector
     plot_temporal_kld_heatmap(posteriors, priors[0], name=name + '_kld', root=root, wandb_log=wandb_log, limit=qty, vmin=0.0)
     
 def generate_low_transition_predictions(model, env, a_indices, a_onehot, goal_mask=False, device='cuda', name='Low-level transition predictions', root='./', wandb_log=True, qty=1):
-    true_obs, predictions = rollout_low_transition_predictions(model, env, a_indices, a_onehot, goal_mask, device)
+    true_obs, predictions = rollout_low_transition_predictions(model, env, a_indices, a_onehot, goal_mask, device, context_length=500)
     batch_size = true_obs[0].shape[0]
     qty = min(batch_size, qty)
     for i in range(qty):

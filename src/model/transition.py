@@ -131,12 +131,21 @@ class RSSMTransitionCategorical(TransitionBase):
         #self.final_activation = final_activation
 
     def forward(self, x, a, h):
+        batch_shape = h.shape[:-1]
         x = x.view(-1, self.latent_dim*self.num_classes)
+        # GRU inputs don't respect multiple batch dimensions
+        # So we need to flatten the batch dimension and then reshape it back afterwards
         a = a.view(-1, self.action_dim)
+        h = h.view(-1, self.hidden_dim)
+
         h = self.rnn(torch.cat([x, a], dim=-1), h)
         x = self.dense(h)
         logits = self.output(x)
-        logits = logits.view(-1, self.latent_dim, self.num_classes)
+        
+        # Restore the original batch dimensions
+        h = h.view(*batch_shape, -1)
+        logits = logits.view(*batch_shape, self.latent_dim, self.num_classes)
+
         p_x = F.softmax(logits, dim=-1)
         return (logits, p_x), h
     

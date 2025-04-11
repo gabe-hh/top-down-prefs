@@ -2,6 +2,7 @@ import os
 import torch
 from torch import nn
 import src.utils.utils as utils
+from src.utils.utils import attach_goal_mask
 
 def high_tick(model, env, h, obs, device, batch_size, a_indices=None, a_onehot=None): #TODO: Passing two sets of actions is bad
     action_dim = model.action_dim
@@ -74,6 +75,12 @@ class WorldModel(nn.Module):
         decoded = self.decoder(z, h)
         return decoded, z, dist
     
+    def encode(self, x, *h):
+        h = torch.cat(h, dim=-1) if h else None
+        dist = self.encoder(x, h)
+        z = self.latent_handler.reparameterize(dist)
+        return z, dist
+
     def decode(self, z, *h):
         h = torch.cat(h, dim=-1) if h else None
         return self.decoder(z, h)
@@ -125,6 +132,109 @@ class WorldModel(nn.Module):
             dist_list.append(dist)
             recon_list.append(x_hat)
         return first_step, z_list, dist_list, recon_list
+
+    def rollout_policy_network(self, z, policy, h=None, depth=10, num_samples=1, recon=False):
+        B = z.size(0)
+        z = z.unsqueeze(1).expand(B, num_samples, *z.shape[1:]).contiguous()
+        if h is not None:
+            h = h.unsqueeze(1).expand(B, num_samples, *h.shape[1:]).contiguous()
+        z_list = []
+        dist_list0 = []
+        dist_list1 = []
+        h_list = [] if h is not None else None
+
+        for t in range(depth):
+            # Flatten if needed
+            # z_flat = z.reshape(B * samples, -1)
+            # if h is not None:
+            #     h_flat = h.reshape(B * samples, -1)
+            # else:
+            #     h_flat = None
+            _,_,p_a = policy(z, h)
+            a = p_a.sample()
+            z, dist, h = self.transition(z, a, h)
+
+            z_list.append(z)
+            
+            dist_list0.append(dist[0])
+            dist_list1.append(dist[1])
+
+            if h is not None:
+                h_list.append(h)
+
+        z_tensor = torch.stack(z_list, dim=2)
+        h_tensor = torch.stack(h_list, dim=2) if h_list is not None else None
+
+        dist_tensor = (torch.stack(dist_list0, dim=2), torch.stack(dist_list1, dim=2))
+
+        if recon:
+            x_hat, x_hat_mask = self.decode(z_tensor, h_tensor)
+
+            _,dist_from_recon = self.encode(attach_goal_mask(x_hat, x_hat_mask), h_tensor)
+            return z_tensor, h_tensor, dist_tensor, x_hat, x_hat_mask, dist_from_recon
+
+        return z_tensor, h_tensor, dist_tensor
+
+    def rollout_policy(self, z, policy, h=None, depth=10, num_samples=1, recon=False):
+        B = z.size(0)
+        print(f"z shape: {z.shape}, so B: {B}")
+        if len(policy.shape) == 3:
+            # If policy has shape [depth, num_policies, action_dim]
+            P = policy.shape[1]  # Number of policies
+            print(f"policy shape: {policy.shape}, so P: {P}")
+            # Add a num_policies dimension to z and h
+            z = z.unsqueeze(1).expand(B, P, *z.shape[1:]).contiguous()
+            if h is not None:
+                h = h.unsqueeze(1).expand(B, P, *h.shape[1:]).contiguous()
+            print(f"z shape after expansion: {z.shape}")
+            # Add batch dimension to policy if B > 1
+            if B > 1:
+                policy = policy.unsqueeze(1).expand(-1, B, *policy.shape[1:]).contiguous()
+                print(f"policy shape after expansion: {policy.shape}")
+        
+        z = z.unsqueeze(1).expand(B, num_samples, *z.shape[1:]).contiguous()
+        if h is not None:
+            h = h.unsqueeze(1).expand(B, num_samples, *h.shape[1:]).contiguous()
+    
+        print(f"z shape after expansion: {z.shape}")
+        print(f"h shape after expansion: {h.shape}" if h is not None else "h is None")
+        print(f"policy shape: {policy.shape}")
+        z_list = []
+        dist_list0 = []
+        dist_list1 = []
+        h_list = [] if h is not None else None
+
+        for t in range(depth):
+            # Flatten if needed
+            # z_flat = z.reshape(B * samples, -1)
+            # if h is not None:
+            #     h_flat = h.reshape(B * samples, -1)
+            # else:
+            #     h_flat = None
+            a = policy[t]
+            z, dist, h = self.transition(z, a, h)
+
+            z_list.append(z)
+            
+            dist_list0.append(dist[0])
+            dist_list1.append(dist[1])
+
+            if h is not None:
+                h_list.append(h)
+
+        z_tensor = torch.stack(z_list, dim=2)
+        h_tensor = torch.stack(h_list, dim=2) if h_list is not None else None
+
+        dist_tensor = (torch.stack(dist_list0, dim=2), torch.stack(dist_list1, dim=2))
+
+        if recon:
+            x_hat, x_hat_mask = self.decode(z_tensor, h_tensor)
+
+            _,dist_from_recon = self.encode(attach_goal_mask(x_hat, x_hat_mask), h_tensor)
+            return z_tensor, h_tensor, dist_tensor, x_hat, x_hat_mask, dist_from_recon
+
+        return z_tensor, h_tensor, dist_tensor
+
 
     def is_terminal(self, t):
         return (t+1) % self.steps == 0

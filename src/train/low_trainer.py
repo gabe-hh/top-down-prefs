@@ -8,6 +8,7 @@ import tqdm
 from src.utils.loss import mse_loss, bernoulli_nll
 #import src.train.utils as train_utils
 import src.utils.utils as utils
+from src.utils.efe import approximate_ig_mc
 from src.utils.eval import plot_img_comparison_batch, generate_low_transition_predictions
 from src.utils.utils import add_goal_mask, separate_goal_mask, generate_goal_mask, get_goal_mask
 
@@ -22,7 +23,8 @@ class LowTrainerOnline():
                  kl_alpha=0.8,
                  eval_img_root='.',
                  eval_every_n_epochs=20,
-                 bptt_truncate=None):
+                 bptt_truncate=None,
+                 ac_optimizer=None):
         
         self.optimizer = optimizer
         self.batch_size = batch_size
@@ -35,6 +37,8 @@ class LowTrainerOnline():
             self.kl_balancing = False
         else:
             self.kl_balancing = True
+
+        self.ac_optimizer = ac_optimizer
 
         self.img_root = eval_img_root
         self.eval_every_n_epochs = eval_every_n_epochs
@@ -64,12 +68,17 @@ class LowTrainerOnline():
         kl_loss = kl_loss.item()
         return loss, recon_loss, kl_loss, goal_loss
 
-    def train(self, model, env, num_epochs, model_root, goal_mask=False):
+    def train(self, model, env, num_epochs, model_root, goal_mask=False, actor_model=None, critic_model=None):
         model = model.to(self.device)
         action_dim = model.action_dim
         zero_prior = model.zero_prior(self.batch_size, device=self.device)
         zero_prior = tuple(d.detach() for d in zero_prior)
         best_loss = float('inf')
+
+        torch.autograd.set_detect_anomaly(True)
+
+        ac_discount = 0.99
+
         for epoch in tqdm.trange(num_epochs, desc="Training"):
             obs,_ = env.reset()
 
@@ -82,8 +91,14 @@ class LowTrainerOnline():
             goal_loss_total = 0
             loss_denom = 0
 
+            actor_loss_total = 0
+            critic_loss_total = 0
+
             # Track accumulated loss for truncated BPTT
             accumulated_loss = torch.tensor(0.0, device=self.device)
+
+            # Trajectory buffer for actor-critic training
+            trajectory_buffer = []
 
             for t in range(self.trajectory_length):
                 unmasked_o_tensor = utils.obs2tensor(obs['image']).to(self.device)
@@ -95,16 +110,25 @@ class LowTrainerOnline():
                     mask_o_tensor = None
 
                 terminal = model.is_terminal(t)
-                if not terminal:
-                    action, a_tensor = utils.get_random_action(action_dim, self.batch_size)
-                    a_tensor = a_tensor.to(self.device)
+                
+                    # action, a_tensor = utils.get_random_action(action_dim, self.batch_size)
+                    # a_tensor = a_tensor.to(self.device)
 
                 decoded, z, dist = model(o_tensor, h)
                 x_hat, x_hat_mask = decoded
 
                 if not terminal:
-                    z_next, dist_next, h = model.transition(z, a_tensor, h)
-
+                    if actor_model is not None:
+                        a_logits = actor_model(z.clone().detach()) # Could also include h
+                        a_dist = utils.logits2categorical(a_logits)
+                        a_tensor = a_dist.sample()
+                        action = utils.onehot2indicies(a_tensor)
+                        ig = approximate_ig_mc(model, z.clone().detach(), a_tensor, h)
+                        z_next, dist_next, h = model.transition(z, a_tensor, h)
+                        trajectory_buffer.append((z.clone().detach(), a_dist, a_tensor, ig.detach(), z_next.clone().detach()))
+                    else:
+                        action, a_tensor = utils.get_random_action(action_dim, self.batch_size, device=self.device)
+                        z_next, dist_next, h = model.transition(z, a_tensor, h)
                 loss, recon_loss, kl_loss, goal_loss = self.compute_loss(model, unmasked_o_tensor, x_hat, dist, dist_prior, x_mask=mask_o_tensor, x_hat_mask=x_hat_mask)
 
                 accumulated_loss = accumulated_loss + loss
@@ -122,6 +146,28 @@ class LowTrainerOnline():
                     accumulated_loss = torch.tensor(0.0, device=self.device)
                     h = h.detach()  # Detach hidden state
 
+                    # Update actor-critic
+                    if self.ac_optimizer is not None:
+                        total_policy_loss = 0.0
+                        for (z, a_dist, a, ig, z_next) in trajectory_buffer:
+                            q = critic_model(z)
+                            q_next = critic_model(z_next)
+                            target = ig + ac_discount * q_next
+                            critic_loss = F.mse_loss(q, target.detach())
+                            advantage = target - q
+                            # Detach the advantage so that gradients flow only through the actor network.
+                            actor_loss = -torch.mean(a_dist.log_prob(a) * advantage.detach())
+                            total_policy_loss = total_policy_loss + actor_loss + critic_loss
+
+                            actor_loss_total += actor_loss.item()
+                            critic_loss_total += critic_loss.item()
+
+                        total_policy_loss = total_policy_loss / len(trajectory_buffer)
+                        self.ac_optimizer.zero_grad()
+                        total_policy_loss.backward()
+                        self.ac_optimizer.step()
+                    trajectory_buffer = []
+
                 # Update prior
                 if not terminal:
                     dist_prior = dist_next
@@ -136,12 +182,34 @@ class LowTrainerOnline():
                 accumulated_loss.backward()
                 self.optimizer.step()
 
+            if trajectory_buffer != [] and self.ac_optimizer is not None:
+                total_policy_loss = 0.0
+                for (z, a_dist, a, ig, z_next) in trajectory_buffer:
+                    q = critic_model(z)
+                    q_next = critic_model(z_next)
+                    target = ig + ac_discount * q_next
+                    critic_loss = F.mse_loss(q, target.detach())
+                    advantage = target - q
+                    # Detach the advantage so that gradients flow only through the actor network.
+                    actor_loss = -torch.mean(a_dist.log_prob(a) * advantage.detach())
+                    total_policy_loss = total_policy_loss + actor_loss + critic_loss
+
+                    actor_loss_total += actor_loss.item()
+                    critic_loss_total += critic_loss.item()
+
+                total_policy_loss = total_policy_loss / len(trajectory_buffer)
+                self.ac_optimizer.zero_grad()
+                total_policy_loss.backward()
+                self.ac_optimizer.step()
+
             avg_loss = epoch_loss / loss_denom
             if self.wandb_enabled:
                 wandb.log({'epoch': epoch+1, 'loss': avg_loss, 
                        'recon_loss': recon_loss_total / loss_denom, 
                        'kl_loss': kl_loss_total / loss_denom,
-                       'goal_loss': goal_loss_total / loss_denom})
+                       'goal_loss': goal_loss_total / loss_denom,
+                       'actor_loss': actor_loss_total / loss_denom,
+                       'critic_loss': critic_loss_total / loss_denom})
             else:
                 print(f'Epoch {epoch+1}/{num_epochs}, Loss: {avg_loss}, Recon Loss: {recon_loss_total / loss_denom}, KL Loss: {kl_loss_total / loss_denom}')
             

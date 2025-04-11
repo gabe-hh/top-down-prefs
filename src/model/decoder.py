@@ -35,7 +35,11 @@ class ConvDecoder(nn.Module):
     def forward(self, x, aux=None):
         if self.aux_size == 0:
             aux = None
-        x = x.view(x.size(0), -1)
+        # Handle potential multiple batch dimensions by checking last dimension
+        if x.size(-1) != self.input_dim - self.aux_size:
+            # Preserve all batch dimensions and flatten only the feature dimensions
+            batch_shape = x.shape[:-1]  # All dimensions except the last one
+            x = x.reshape(*batch_shape, -1)  # Flatten to have correct feature size
         if aux is not None:
             x = torch.cat([x, aux], dim=-1)
         x = self.dense(x)
@@ -60,7 +64,11 @@ class DenseDecoder(nn.Module):
         self.output_size = output_size
         
     def forward(self, x, aux=None):
-        x = x.view(x.size(0), -1)
+        # Handle potential multiple batch dimensions by checking last dimension
+        if x.size(-1) != self.input_dim - self.aux_size:
+            # Preserve all batch dimensions and flatten only the feature dimensions
+            batch_shape = x.shape[:-1]  # All dimensions except the last one
+            x = x.reshape(*batch_shape, -1)  # Flatten to have correct feature size
         if self.aux_size == 0:
             aux = None
         if aux is not None:
@@ -84,6 +92,7 @@ class MultiHeadDecoder(nn.Module):
                  last_layer_conv=False):
         super(MultiHeadDecoder, self).__init__()
         self.in_shape = in_shape  # e.g., [channels, height, width] for the image branch
+        self.input_dim = input_dim
         self.aux_size = aux_size
         img_size = in_shape[-1]
         in_channels = in_shape[0]
@@ -121,11 +130,19 @@ class MultiHeadDecoder(nn.Module):
         # Pass through dense (shared) layers
         if self.aux_size == 0:
             aux = None
-        x = x.view(x.size(0), -1)
+        # Handle potential multiple batch dimensions by checking last dimension
+        if x.size(-1) != self.input_dim:
+            # Preserve all batch dimensions and flatten only the feature dimensions
+            batch_shape = x.shape[:-2]  # All dimensions except the last one
+            x = x.reshape(*batch_shape, -1)  # Flatten to have correct feature size
+        batch_shape = x.shape[:-1]
+        
         if aux is not None:
             x = torch.cat([x, aux], dim=-1)
+            
+        x = x.reshape(-1, x.shape[-1])
+
         shared_features = self.shared_dense(x)
-        
         # Reshape shared features into the shape expected by deconv layers.
         # This assumes self.in_shape is compatible with the dense output.
         shared_features = shared_features.view(shared_features.size(0), *self.in_shape)
@@ -141,4 +158,6 @@ class MultiHeadDecoder(nn.Module):
         mask_input = shared_features.mean(dim=1, keepdim=True)  # For example, average over channels
         mask_out = self.mask_deconv(mask_input)
         
+        img_out = img_out.view(*batch_shape, *img_out.shape[1:])
+        mask_out = mask_out.view(*batch_shape, *mask_out.shape[1:])
         return (img_out, mask_out)

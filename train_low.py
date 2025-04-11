@@ -13,7 +13,7 @@ import argparse
 from src.env.custom_sync_vector_env import make_custom_vec
 from src.train.low_trainer import LowTrainerOnline
 from src.train.utils import load_config, load_training_params
-from src.model.factory import build_model_from_loaded_config, load_config
+from src.model.factory import build_model_from_loaded_config, load_config, build_actor_critic_from_config
 import shutil
 
 if __name__ == '__main__':
@@ -36,6 +36,8 @@ if __name__ == '__main__':
     training_params = load_training_params(config)
     model = build_model_from_loaded_config(config, device=device)
 
+    actor_model, critic_model = build_actor_critic_from_config(config, device=device)
+    
     model_name = training_params.get('model_name', None)
     batch_size = training_params.get('batch_size', 32)
     trajectory_length = training_params.get('trajectory_length', 5)
@@ -59,9 +61,13 @@ if __name__ == '__main__':
     shutil.copy2(config_path, config_save_path)
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
-    trainer = LowTrainerOnline(optimizer, batch_size, trajectory_length, beta=beta, device=device, eval_img_root=eval_dir, eval_every_n_epochs=2, bptt_truncate=bptt_truncate)
+    if actor_model is not None and critic_model is not None:
+        ac_optimizer = optim.Adam(list(actor_model.parameters()) + list(critic_model.parameters()), lr=1e-3)
+    else:
+        ac_optimizer = None
+    trainer = LowTrainerOnline(optimizer, batch_size, trajectory_length, beta=beta, device=device, eval_img_root=eval_dir, eval_every_n_epochs=20, bptt_truncate=bptt_truncate, ac_optimizer=ac_optimizer)
     env = make_custom_vec("MiniGrid-FourRooms-v0", num_envs=batch_size, wrappers=[RGBImgPartialObsWrapper])
 
-    trainer.train(model, env, num_epochs, models_dir, goal_mask=goal_mask)
+    trainer.train(model, env, num_epochs, models_dir, goal_mask=goal_mask, actor_model=actor_model, critic_model=critic_model)
 
     wandb.finish()

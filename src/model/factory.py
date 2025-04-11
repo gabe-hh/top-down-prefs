@@ -71,11 +71,20 @@ def build_latent_action_model_from_config(config):
 def build_mlp_from_config(model_config):
     input_dim = model_config["input_dim"]
     output_dim = model_config["output_dim"]
-    hidden_dims = model_config["hidden_dims"]
+    layers = model_config["layers"]
     activation = model_config["activation"]
     output_activation = model_config.get("output_activation", None)
-    model = MLP(input_dim, output_dim, hidden_dims, activation, output_activation)
+    model = MLP(input_dim, layers, output_dim, activation, output_activation)
     return model
+
+def build_actor_critic_from_config(config, device="cuda"):
+    if "actor" not in config or "critic" not in config:
+        return None, None
+    actor_config = config["actor"]
+    critic_config = config["critic"]
+    actor = build_mlp_from_config(actor_config)
+    critic = build_mlp_from_config(critic_config)
+    return actor.to(device), critic.to(device)
 
 def build_world_model_from_config(config):
     model_config = config["model"]

@@ -29,7 +29,10 @@ class ConvEncoder(nn.Module):
         if self.aux_size == 0:
             aux = None
         embedding = self.cnn(x)
-        embedding = torch.flatten(embedding, start_dim=1)
+        # Flatten only the image dimensions (last 3), preserving batch dimensions
+        batch_shape = embedding.shape[:-3]  # All dimensions except the last 3
+        image_shape = embedding.shape[-3:]  # The last 3 dimensions
+        embedding = embedding.reshape(*batch_shape, -1)  # Flatten image dimensions
         if aux is not None:
             embedding = torch.cat([embedding, aux], dim=-1)
         embedding = self.dense(embedding)
@@ -67,13 +70,30 @@ class ConvEncoderCategorical(nn.Module):
     def forward(self, x, aux=None):
         if self.aux_size == 0:
             aux = None
+
+        # Store the original batch shape
+        original_shape = x.shape[:-3]  # All dimensions except the last 3 (image dimensions)
+
+        # If there are multiple batch dimensions, flatten them
+        if len(original_shape) > 1:
+            x = x.view(-1, *x.shape[-3:])  # Flatten batch dims, preserve image dims
+
         embedding = self.cnn(x)
-        embedding = torch.flatten(embedding, start_dim=1)
+        # Flatten only the image dimensions (last 3), preserving batch dimensions
+        batch_shape = embedding.shape[:-3]  # All dimensions except the last 3
+        image_shape = embedding.shape[-3:]  # The last 3 dimensions
+        embedding = embedding.reshape(*batch_shape, -1)  # Flatten image dimensions
         if aux is not None:
+            aux = aux.view(-1, aux.shape[-1])  # Flatten batch dims, preserve aux dims
             embedding = torch.cat([embedding, aux], dim=-1)
         embedding = self.dense(embedding)
         logits = self.output(embedding)
-        logits = logits.view(-1, self.latent_dim, self.num_classes)
+        # Restore the original batch shape if multiple batch dims were flattened
+        if len(original_shape) > 1:
+            # First reshape to include all original batch dimensions and the latent dimensions
+            logits = logits.view(*original_shape, self.latent_dim * self.num_classes)
+        # Now reshape to have batch dimensions, latent dimension, and class dimension
+        logits = logits.view(*logits.shape[:-1], self.latent_dim, self.num_classes)
         p_z = F.softmax(logits, dim=-1)
         return (logits, p_z)
     
@@ -95,7 +115,11 @@ class DenseEncoder(nn.Module):
         self.output_size = latent_dim
         
     def forward(self, x, aux=None):
-        x = x.view(x.size(0), -1)
+        # Handle potential multiple batch dimensions by checking last dimension
+        if x.size(-1) != self.dense.input_size - self.aux_size:
+            # Preserve all batch dimensions and flatten only the feature dimensions
+            batch_shape = x.shape[:-1]  # All dimensions except the last one
+            x = x.reshape(*batch_shape, -1)  # Flatten to have correct feature size
         if aux is not None:
             x = torch.cat([x, aux], dim=-1)
         x = self.dense(x)
@@ -127,7 +151,11 @@ class DenseEncoderCategorical(nn.Module):
         self.output_size = latent_dim*num_classes
         
     def forward(self, x, aux=None):
-        x = x.view(x.size(0), -1)
+        # Handle potential multiple batch dimensions by checking last dimension
+        if x.size(-1) != self.dense.input_size - self.aux_size:
+            # Preserve all batch dimensions and flatten only the feature dimensions
+            batch_shape = x.shape[:-1]  # All dimensions except the last one
+            x = x.reshape(*batch_shape, -1)  # Flatten to have correct feature size
         if aux is not None:
             x = torch.cat([x, aux], dim=-1)
         x = self.dense(x)

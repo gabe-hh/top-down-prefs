@@ -17,13 +17,16 @@ def indicies2onehot(indicies, batch_size=64, indicies_dim=4):
     onehot[torch.arange(batch_size), indicies] = 1
     return onehot
 
+def onehot2indicies(onehot):
+    return torch.argmax(onehot, dim=-1)
+
 def get_random_action(action_dim, batch_size, device='cuda'):
-    action = torch.randint(0, action_dim-1, (batch_size,))
+    action = torch.randint(0, action_dim, (batch_size,))
     action_tensor = F.one_hot(action, action_dim).float().to(device)
     return action, action_tensor
 
 def get_random_action_sequence(length, action_dim, batch_size, device='cuda'):
-    actions = torch.randint(0, action_dim-1, (length, batch_size))
+    actions = torch.randint(0, action_dim, (length, batch_size))
     action_tensors = F.one_hot(actions, action_dim).float().to(device)
     return actions, action_tensors
 
@@ -43,46 +46,52 @@ def add_goal_mask(img, green_threshold=0.5, diff=0.1):
     Returns:
       Tensor: Image tensor concatenated with the newly computed mask.
     """
-    if img.dim() == 3:
-        # Non-batched image: shape [C, H, W]
-        red = img[0:1]
-        green = img[1:2]
-        blue = img[2:3]
-        mask = ((green > green_threshold) & (green > red + diff) & (green > blue + diff)).to(img.dtype)
-        img_with_mask = torch.cat([img, mask], dim=0)
-    elif img.dim() == 4:
-        # Batched image: shape [B, C, H, W]
-        red = img[:, 0:1]
-        green = img[:, 1:2]
-        blue = img[:, 2:3]
-        mask = ((green > green_threshold) & (green > red + diff) & (green > blue + diff)).to(img.dtype)
-        img_with_mask = torch.cat([img, mask], dim=1)
-    else:
-        raise ValueError("Unsupported image shape")
+    # Handle any tensor shape by working with the channels
+    # which are always the third-last dimension
+    channel_dim = img.dim() - 3  # Channel dimension index
+    
+    if channel_dim < 0:
+        raise ValueError(f"Unsupported image shape: {img.shape}. Expected at least 3D tensor (C,H,W).")
+    
+    # Extract RGB channels using dynamic indexing
+    # This works for any number of batch dimensions
+    red = img.select(channel_dim, 0).unsqueeze(channel_dim)
+    green = img.select(channel_dim, 1).unsqueeze(channel_dim)
+    blue = img.select(channel_dim, 2).unsqueeze(channel_dim)
+    
+    # Create the mask (goal is green areas)
+    mask = ((green > green_threshold) & 
+            (green > red + diff) & 
+            (green > blue + diff)).to(img.dtype)
+    
+    # Concatenate along the channel dimension
+    img_with_mask = torch.cat([img, mask], dim=channel_dim)
     return img_with_mask
 
 def get_goal_mask(img):
     """
-    Returns the goal mask from the image. Supports both non-batched ([C, H, W])
-    and batched ([B, C, H, W]) images.
+    Returns the goal mask from the image. Supports images with any number of batch dimensions.
+    The mask is always the last channel.
+    
+    Parameters:
+      img (Tensor): Input image tensor with channels in the third-last dimension.
+      
+    Returns:
+      Tensor: The mask tensor.
     """
-    if img.dim() == 3:
-        # Non-batched image
-        mask = img[-1:]
-    elif img.dim() == 4:
-        # Batched image
-        mask = img[:, -1:]
-    else:
-        raise ValueError("Unsupported image shape")
-    return mask
+    if img.dim() < 3:
+        raise ValueError(f"Unsupported image shape: {img.shape}. Expected at least 3D tensor.")
+    
+    channel_dim = img.dim() - 3
+    # Select the last channel
+    return img.select(channel_dim, img.size(channel_dim)-1).unsqueeze(channel_dim)
 
 def generate_goal_mask(img, green_threshold=0.5, diff=0.1):
     """
     Generates the goal mask from an unmasked image by computing the mask and returning only the mask.
     
     Parameters:
-        img (Tensor): Input image tensor with channels in the first dimension for non-batched images
-                    or B, C, H, W for batched images.
+        img (Tensor): Input image tensor with channels in the third-last dimension.
         green_threshold (float): Threshold for the green channel.
         diff (float): Minimum difference for detecting a goal.
         
@@ -93,32 +102,54 @@ def generate_goal_mask(img, green_threshold=0.5, diff=0.1):
 
 def separate_goal_mask(img):
     """
-    Separates the goal mask from the image. Supports both non-batched ([C, H, W])
-    and batched ([B, C, H, W]) images.
+    Separates the goal mask from the image. Supports images with any number of batch dimensions.
+    
+    Parameters:
+      img (Tensor): Input image tensor with channels in the third-last dimension.
+      
+    Returns:
+      tuple: (img_without_mask, mask)
     """
-    if img.dim() == 3:
-        # Non-batched image
-        mask = img[-1:]
-        img_without_mask = img[:-1]
-    elif img.dim() == 4:
-        # Batched image
-        mask = img[:, -1:]
-        img_without_mask = img[:, :-1]
-    else:
-        raise ValueError("Unsupported image shape")
+    if img.dim() < 3:
+        raise ValueError(f"Unsupported image shape: {img.shape}. Expected at least 3D tensor.")
+    
+    channel_dim = img.dim() - 3
+    mask = img.select(channel_dim, img.size(channel_dim)-1).unsqueeze(channel_dim)
+    img_without_mask = img.narrow(channel_dim, 0, img.size(channel_dim)-1)
+    
     return img_without_mask, mask
+
+def attach_goal_mask(img, mask):
+    """
+    Attaches the goal mask to the image. Supports tensors of any shape by always concatenating
+    along the channel dimension (third from last dimension).
+    
+    Parameters:
+      img (Tensor): Input image tensor.
+      mask (Tensor): Mask tensor to attach.
+      
+    Returns:
+      Tensor: Image tensor with mask attached.
+    """
+    if img.dim() < 3:
+        raise ValueError(f"Unsupported image shape: {img.shape}. Expected at least 3D tensor.")
+    
+    # Always concatenate along the channel dimension (third from last)
+    channel_dim = img.dim() - 3
+    return torch.cat([img, mask], dim=channel_dim)
 
 def remove_goal_mask(img):
     """
-    Removes the goal mask from the image. Supports both non-batched ([C, H, W])
-    and batched ([B, C, H, W]) images.
+    Removes the goal mask from the image. Supports images with any number of batch dimensions.
+    
+    Parameters:
+      img (Tensor): Input image tensor with channels in the third-last dimension.
+      
+    Returns:
+      Tensor: Image tensor without the mask channel.
     """
-    if img.dim() == 3:
-        # Non-batched image
-        img_without_mask = img[:-1]
-    elif img.dim() == 4:
-        # Batched image
-        img_without_mask = img[:, :-1]
-    else:
-        raise ValueError("Unsupported image shape")
-    return img_without_mask
+    if img.dim() < 3:
+        raise ValueError(f"Unsupported image shape: {img.shape}. Expected at least 3D tensor.")
+    
+    channel_dim = img.dim() - 3
+    return img.narrow(channel_dim, 0, img.size(channel_dim)-1)

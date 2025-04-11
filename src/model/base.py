@@ -49,6 +49,9 @@ class MLP(nn.Module):
         self.output_size = output_size
     
     def forward(self, x, *aux):
+        # flatten if needed
+        if x.dim() > 2:
+            x = x.view(x.size(0), -1)
         if aux:
             x = torch.cat([x, *aux], dim=1)
         for layer in self.layers:
